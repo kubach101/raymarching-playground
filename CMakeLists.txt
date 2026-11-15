@@ -27,3 +27,28 @@ target_link_libraries(VkEngine PRIVATE Vulkan::Vulkan glfw cglm_headers)
 
 # Vulkan uses a 0..1 depth range (cglm defaults to OpenGL's -1..1)
 target_compile_definitions(VkEngine PRIVATE CGLM_FORCE_DEPTH_ZERO_TO_ONE)
+
+# --- Shaders: compile GLSL -> SPIR-V at build time with glslc ---
+find_program(GLSLC glslc HINTS $ENV{VULKAN_SDK}/Bin REQUIRED)
+
+set(SHADER_SOURCES
+    ${CMAKE_SOURCE_DIR}/res/shaders/shader.vert
+    ${CMAKE_SOURCE_DIR}/res/shaders/raymarching.frag)
+set(SHADER_OUTPUT_DIR ${CMAKE_BINARY_DIR}/shaders)
+
+set(SPIRV_FILES)
+foreach(SHADER ${SHADER_SOURCES})
+    get_filename_component(SHADER_NAME ${SHADER} NAME)
+    set(SPIRV ${SHADER_OUTPUT_DIR}/${SHADER_NAME}.spv)
+    add_custom_command(
+        OUTPUT ${SPIRV}
+        COMMAND ${CMAKE_COMMAND} -E make_directory ${SHADER_OUTPUT_DIR}
+        COMMAND ${GLSLC} --target-env=vulkan1.3 ${SHADER} -o ${SPIRV}
+        DEPENDS ${SHADER}
+        COMMENT "Compiling shader ${SHADER_NAME}")
+    list(APPEND SPIRV_FILES ${SPIRV})
+endforeach()
+
+add_custom_target(Shaders DEPENDS ${SPIRV_FILES})
+add_dependencies(VkEngine Shaders)
+target_compile_definitions(VkEngine PRIVATE SHADER_DIR="${SHADER_OUTPUT_DIR}/")

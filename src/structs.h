@@ -44,6 +44,13 @@ typedef struct {
 
 } Context;
 
+// A host-visible, persistently mapped GPU buffer holding `objectCount` items
+typedef struct {
+  VkBuffer handle;
+  VkDeviceMemory memory;
+  void *mapped;
+  uint32_t objectCount;
+} BufferData;
 typedef struct {
   VkPipeline graphicsPipeline;
   VkPipelineLayout graphicsPipelineLayout;
@@ -55,12 +62,12 @@ typedef struct {
   VkSemaphore *renderFinishedSemaphores; // one per swapchain image
   VkFence inFlightFence;
 
+  // Describes the shader's resource interface, shared by all buffers
   VkDescriptorSetLayout descriptorSetLayout;
   VkDescriptorPool descriptorPool;
   VkDescriptorSet descriptorSet;
-  VkBuffer sphereBuffer;
-  VkDeviceMemory sphereMemory;
-  void *sphereMapped;
+
+  BufferData sphereData;
 } Renderer;
 typedef struct {
   Config config;
@@ -70,13 +77,20 @@ typedef struct {
 
 } State;
 
+// Must match the push_constant block in raymarching.frag
 typedef struct {
-  float player[3];
-  float fov;            // offset 0
+  float player[3];      // offset 0
+  float fov;            // offset 12 (radians)
   float resolution[2];  // offset 16
   float boundingRadius; // offset 24
   uint32_t sphereCount; // offset 28
 } PushConstants;        // 32 bytes
+
+// Must match the SphereBuffer element in raymarching.frag (vec4)
+typedef struct {
+  float center[3];
+  float radius;
+} Sphere;
 
 enum swapchainBuffering {
   SWAPCHAIN_DOUBLE_BUFFERING = 2,

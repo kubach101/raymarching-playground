@@ -13,6 +13,25 @@
     }                                                                          \
   } while (0)
 
+// Reads a whole binary file (e.g. SPIR-V). Caller frees the returned buffer.
+uint32_t *readSpirvFile(const char *path, size_t *outSize) {
+  FILE *file = fopen(path, "rb");
+  PANIC_IF(!file, "Couldn't open file: %s\n", path);
+  fseek(file, 0, SEEK_END);
+  long size = ftell(file);
+  fseek(file, 0, SEEK_SET);
+  PANIC_IF(size <= 0 || size % 4 != 0, "Invalid SPIR-V file: %s\n", path);
+
+  uint32_t *code = malloc((size_t)size);
+  PANIC_IF(!code, "Couldn't allocate memory for file: %s\n", path);
+  PANIC_IF(fread(code, 1, (size_t)size, file) != (size_t)size,
+           "Couldn't read file: %s\n", path);
+  fclose(file);
+
+  *outSize = (size_t)size;
+  return code;
+}
+
 uint32_t clamp(uint32_t val, uint32_t min, uint32_t max) {
   if (val < min)
     return min;

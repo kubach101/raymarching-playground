@@ -1,3 +1,9 @@
+CompileFlags:
+  # Ninja/gcc configure used only for clangd (Visual Studio generator can't
+  # export compile_commands.json). Regenerate with:
+  #   cmake -S . -B build-clangd -G Ninja -DCMAKE_C_COMPILER=gcc -DCMAKE_EXPORT_COMPILE_COMMANDS=ON
+  CompilationDatabase: build-clangd
+---
 If:
   PathMatch: src/.*\.h
 CompileFlags:
@@ -5,5 +11,7 @@ CompileFlags:
     - -std=gnu17
     - -isystem
     - C:/VulkanSDK/1.4.357.0/include
-    - -IC:/VkEngine/build/_deps/glfw-src/include
-    - -IC:/VkEngine/build/_deps/cglm-src/include
+    - -IC:/Raymarching/build-clangd/_deps/glfw-src/include
+    - -IC:/Raymarching/build-clangd/_deps/cglm-src/include
+    - -DCGLM_FORCE_DEPTH_ZERO_TO_ONE
+    - -DSHADER_DIR="C:/Raymarching/build-clangd/shaders/"
