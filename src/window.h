@@ -75,16 +75,23 @@ VkSurfaceFormatKHR selectSurfaceFormat(State *state) {
   uint32_t surfaceFormatIndex = UINT32_MAX;
   for (int i = 0; i < surfaceFormatCount; i++) {
     if (surfaceFormats[i].colorSpace == VK_COLOR_SPACE_SRGB_NONLINEAR_KHR &&
-        surfaceFormats[i].format == VK_FORMAT_B8G8R8A8_SRGB) {
+        surfaceFormats[i].format == VK_FORMAT_B8G8R8A8_UNORM) {
       surfaceFormatIndex = i;
       break;
     }
   }
-
   PANIC_IF(surfaceFormatIndex == UINT32_MAX,
            "Couldn't fint suitable surface format\n");
   VkSurfaceFormatKHR surfaceFormat = surfaceFormats[surfaceFormatIndex];
-  printf("Selected surface format: SRGB nonlinear\n");
+
+  VkFormatProperties formatProperties;
+  vkGetPhysicalDeviceFormatProperties(state->context.physicalDevice,
+                                      surfaceFormat.format, &formatProperties);
+
+  PANIC_IF(!(formatProperties.optimalTilingFeatures &
+             VK_FORMAT_FEATURE_STORAGE_IMAGE_BIT),
+           "Swapchain format doesn't support storage images\n");
+
   free(surfaceFormats);
   return surfaceFormat;
 }
@@ -147,23 +154,23 @@ void createSwapchainImageViews(State *state) {
            "Couldn't allocate swapchain image views array");
 
   for (int i = 0; i < state->window.swapchain.imageCount; i++) {
-    PANIC_IF(vkCreateImageView(
-                 state->context.device,
-                 &(VkImageViewCreateInfo){
-                     .sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO,
-                     .format = state->window.swapchain.format,
-                     .image = state->window.swapchain.images[i],
-                     .components = state->config.swapchainComponentsMapping,
-                     .subresourceRange =
-                         (VkImageSubresourceRange){
-                             .aspectMask = VK_IMAGE_ASPECT_COLOR_BIT,
-                             .layerCount = 1,
-                             .levelCount = 1},
-                     .viewType = VK_IMAGE_VIEW_TYPE_2D,
-                 },
-                 state->config.allocator,
-                 &state->window.swapchain.imageViews[i]),
-             "Couldn't create image view\n");
+    PANIC_IF(
+        vkCreateImageView(
+            state->context.device,
+            &(VkImageViewCreateInfo){
+                .sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO,
+                .format = state->window.swapchain.format,
+                .image = state->window.swapchain.images[i],
+                .components = state->config.swapchainComponentsMapping,
+                .subresourceRange =
+                    (VkImageSubresourceRange){.aspectMask =
+                                                  VK_IMAGE_ASPECT_COLOR_BIT,
+                                              .layerCount = 1,
+                                              .levelCount = 1},
+                .viewType = VK_IMAGE_VIEW_TYPE_2D,
+            },
+            state->config.allocator, &state->window.swapchain.imageViews[i]),
+        "Couldn't create image view\n");
   }
 }
 void createSwapchain(State *state) {
@@ -175,15 +182,10 @@ void createSwapchain(State *state) {
   state->window.swapchain.colorSpace = surfaceFormat.colorSpace;
   state->window.swapchain.imageExtend = surfaceCapabilities.currentExtent;
 
-  /*
-  ; (VkExtent2D){
-      .width = clamp(surfaceCapabilities.currentExtent.width,
-  surfaceCapabilities.minImageExtent.width,
-  surfaceCapabilities.maxImageExtent.width), .height =
-  clamp(surfaceCapabilities.currentExtent.height,
-  surfaceCapabilities.minImageExtent.height,
-  surfaceCapabilities.maxImageExtent.height)};
-*/
+  PANIC_IF(
+      !(surfaceCapabilities.supportedUsageFlags & VK_IMAGE_USAGE_STORAGE_BIT),
+      "Surface doesn't support storage usage\n");
+
   PANIC_IF(
       vkCreateSwapchainKHR(
           state->context.device,
@@ -196,7 +198,7 @@ void createSwapchain(State *state) {
               .compositeAlpha = VK_COMPOSITE_ALPHA_OPAQUE_BIT_KHR,
               .imageArrayLayers = 1,
               .imageSharingMode = VK_SHARING_MODE_EXCLUSIVE,
-              .imageUsage = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT,
+              .imageUsage = VK_IMAGE_USAGE_STORAGE_BIT,
               .oldSwapchain =
                   state->window.swapchain
                       .handle, // no old swapchain so it is equal to NULL
@@ -204,12 +206,11 @@ void createSwapchain(State *state) {
               .imageExtent = state->window.swapchain.imageExtend,
               .imageFormat = state->window.swapchain.format,
               .presentMode = presentMode,
-              .minImageCount =
-                  clamp(state->config.swapchainBuffering,
-                        surfaceCapabilities.minImageCount,
-                        surfaceCapabilities.maxImageCount
-                            ? surfaceCapabilities.maxImageCount
-                            : UINT32_MAX),
+              .minImageCount = clamp(state->config.swapchainBuffering,
+                                     surfaceCapabilities.minImageCount,
+                                     surfaceCapabilities.maxImageCount
+                                         ? surfaceCapabilities.maxImageCount
+                                         : UINT32_MAX),
           },
           state->config.allocator, &state->window.swapchain.handle),
       "Couldn't create swapchain\n");

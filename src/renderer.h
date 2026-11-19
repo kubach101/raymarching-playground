@@ -8,46 +8,37 @@
 #include <stdlib.h>
 #include <string.h>
 
-void createGraphicsPipeline(State *state) {
-  size_t vertexShaderSize, fragmentShaderSize;
-  uint32_t *vertexShaderCode =
-      readSpirvFile(SHADER_DIR "shader.vert.spv", &vertexShaderSize);
-  uint32_t *fragmentShaderCode =
-      readSpirvFile(SHADER_DIR "raymarching.frag.spv", &fragmentShaderSize);
+void createComputePipeline(State *state) {
+  size_t shaderSize;
+  uint32_t *shaderCode =
+      readSpirvFile(SHADER_DIR "raymarching.comp.spv", &shaderSize);
 
-  // Vertex shader
-  VkShaderModule vertexShaderModule;
+  VkShaderModule shaderModule;
   PANIC_IF(vkCreateShaderModule(
                state->context.device,
                &(VkShaderModuleCreateInfo){
                    .sType = VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO,
-                   .pCode = vertexShaderCode,
-                   .codeSize = vertexShaderSize},
-               state->config.allocator, &vertexShaderModule),
-           "Couldn't create vertex shader module\n");
+                   .pCode = shaderCode,
+                   .codeSize = shaderSize},
+               state->config.allocator, &shaderModule),
+           "Couldn't create compute shader module\n");
 
-  // Fragment shader
-  VkShaderModule fragmentShaderModule;
-  PANIC_IF(vkCreateShaderModule(
-               state->context.device,
-               &(VkShaderModuleCreateInfo){
-                   .sType = VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO,
-                   .pCode = fragmentShaderCode,
-                   .codeSize = fragmentShaderSize},
-               state->config.allocator, &fragmentShaderModule),
-           "Couldn't create fragment shader module\n");
-
+  VkDescriptorSetLayoutBinding bindings[] = {
+      {.binding = 0,
+       .descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
+       .descriptorCount = 1,
+       .stageFlags = VK_SHADER_STAGE_COMPUTE_BIT},
+      {.binding = 1,
+       .descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE,
+       .descriptorCount = 1,
+       .stageFlags = VK_SHADER_STAGE_COMPUTE_BIT},
+  };
   PANIC_IF(vkCreateDescriptorSetLayout(
                state->context.device,
                &(VkDescriptorSetLayoutCreateInfo){
                    .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO,
-                   .bindingCount = 1,
-                   .pBindings =
-                       &(VkDescriptorSetLayoutBinding){
-                           .binding = 0,
-                           .descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
-                           .descriptorCount = 1,
-                           .stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT}},
+                   .bindingCount = sizeof(bindings) / sizeof(*bindings),
+                   .pBindings = bindings},
                state->config.allocator, &state->renderer.descriptorSetLayout),
            "Couldn't create descriptor set layout\n");
 
@@ -60,217 +51,38 @@ void createGraphicsPipeline(State *state) {
                    .pushConstantRangeCount = 1,
                    .pPushConstantRanges =
                        &(VkPushConstantRange){.stageFlags =
-                                                  VK_SHADER_STAGE_FRAGMENT_BIT,
-                                              .offset = 0,
+                                                  VK_SHADER_STAGE_COMPUTE_BIT,
                                               .size = sizeof(PushConstants)}},
-               state->config.allocator,
-               &state->renderer.graphicsPipelineLayout),
+               state->config.allocator, &state->renderer.computePipelineLayout),
            "Couldn't create pipeline layout\n");
 
-  const char *shaderEntryFunctionName = "main";
-  VkPipelineShaderStageCreateInfo shaderStagesCreateInfo[] = {
-      {
-          .sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO,
-          .module = vertexShaderModule,
-          .stage = VK_SHADER_STAGE_VERTEX_BIT,
-          .pName = shaderEntryFunctionName,
-      },
-      {.sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO,
-       .module = fragmentShaderModule,
-       .stage = VK_SHADER_STAGE_FRAGMENT_BIT,
-       .pName = shaderEntryFunctionName}};
-
-  VkExtent2D imageExtent = state->window.swapchain.imageExtend;
-
-  VkViewport viewports[] = {
-      {.width = (float)imageExtent.width, .height = (float)imageExtent.height}};
-
-  VkRect2D scissors[] = {{
-      .extent = imageExtent,
-  }};
-
-  VkPipelineColorBlendAttachmentState colorBlendAttachmentStates[] = {
-      {.colorWriteMask = VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT |
-                         VK_COLOR_COMPONENT_B_BIT | VK_COLOR_COMPONENT_A_BIT}};
-
   PANIC_IF(
-      vkCreateGraphicsPipelines(
+      vkCreateComputePipelines(
           state->context.device, NULL, 1,
-          &(VkGraphicsPipelineCreateInfo){
-              .sType = VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO,
-              .pStages = shaderStagesCreateInfo,
-              .stageCount = sizeof(shaderStagesCreateInfo) /
-                            sizeof(*shaderStagesCreateInfo),
+          &(VkComputePipelineCreateInfo){
+              .sType = VK_STRUCTURE_TYPE_COMPUTE_PIPELINE_CREATE_INFO,
+              .stage = {.sType =
+                            VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO,
+                        .stage = VK_SHADER_STAGE_COMPUTE_BIT,
+                        .module = shaderModule,
+                        .pName = "main"},
+              .layout = state->renderer.computePipelineLayout},
+          state->config.allocator, &state->renderer.computePipeline),
+      "Couldn't create compute pipeline\n");
 
-              .pVertexInputState =
-                  &(VkPipelineVertexInputStateCreateInfo){
-                      .sType =
-                          VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO,
-                  },
-
-              .pInputAssemblyState =
-                  &(VkPipelineInputAssemblyStateCreateInfo){
-                      .sType =
-                          VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO,
-                      .topology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST,
-                  },
-
-              .pViewportState =
-                  &(VkPipelineViewportStateCreateInfo){
-                      .sType =
-                          VK_STRUCTURE_TYPE_PIPELINE_VIEWPORT_STATE_CREATE_INFO,
-                      .pViewports = viewports,
-                      .viewportCount = sizeof(viewports) / sizeof(*viewports),
-                      .pScissors = scissors,
-                      .scissorCount = sizeof(scissors) / sizeof(*scissors),
-                  },
-
-              .pRasterizationState =
-                  &(VkPipelineRasterizationStateCreateInfo){
-                      .sType =
-                          VK_STRUCTURE_TYPE_PIPELINE_RASTERIZATION_STATE_CREATE_INFO,
-                      .lineWidth = 1.0f,
-                      .frontFace = VK_FRONT_FACE_COUNTER_CLOCKWISE,
-                      .cullMode = VK_CULL_MODE_NONE,
-                      .polygonMode = VK_POLYGON_MODE_FILL},
-
-              .pMultisampleState =
-                  &(VkPipelineMultisampleStateCreateInfo){
-                      .sType =
-                          VK_STRUCTURE_TYPE_PIPELINE_MULTISAMPLE_STATE_CREATE_INFO,
-                      .rasterizationSamples = VK_SAMPLE_COUNT_1_BIT},
-
-              .pColorBlendState =
-                  &(VkPipelineColorBlendStateCreateInfo){
-                      .sType =
-                          VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO,
-                      .pAttachments = colorBlendAttachmentStates,
-                      .attachmentCount = sizeof(colorBlendAttachmentStates) /
-                                         sizeof(*colorBlendAttachmentStates)},
-
-              .layout = state->renderer.graphicsPipelineLayout,
-              .renderPass = state->renderer.renderPass,
-              .subpass = 0,
-          },
-          state->config.allocator, &state->renderer.graphicsPipeline),
-      "Couldn't create a graphics pipeline\n");
-
-  vkDestroyShaderModule(state->context.device, vertexShaderModule,
+  vkDestroyShaderModule(state->context.device, shaderModule,
                         state->config.allocator);
-
-  vkDestroyShaderModule(state->context.device, fragmentShaderModule,
-                        state->config.allocator);
-  free(vertexShaderCode);
-  free(fragmentShaderCode);
+  free(shaderCode);
 }
-void destroyGraphicsPipeline(State *state) {
-  vkDestroyPipeline(state->context.device, state->renderer.graphicsPipeline,
+void destroyComputePipeline(State *state) {
+  vkDestroyPipeline(state->context.device, state->renderer.computePipeline,
                     state->config.allocator);
   vkDestroyPipelineLayout(state->context.device,
-                          state->renderer.graphicsPipelineLayout,
+                          state->renderer.computePipelineLayout,
                           state->config.allocator);
   vkDestroyDescriptorSetLayout(state->context.device,
                                state->renderer.descriptorSetLayout,
                                state->config.allocator);
-}
-
-void createRenderPass(State *state) {
-  VkFormat imageFormat = state->window.swapchain.format;
-
-  VkAttachmentReference colorAttachmentReferences[] = {{
-      .attachment = 0,
-      .layout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
-  }};
-  VkSubpassDescription subpassDescriptions[] = {{
-      .pipelineBindPoint = VK_PIPELINE_BIND_POINT_GRAPHICS,
-      .pColorAttachments = colorAttachmentReferences,
-      .colorAttachmentCount = 1,
-  }};
-
-  VkAttachmentDescription attachmentDescriptions[] = {
-      {.format = imageFormat,
-       .samples = VK_SAMPLE_COUNT_1_BIT,
-       .initialLayout = VK_IMAGE_LAYOUT_UNDEFINED,
-       .finalLayout = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR,
-       .loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR,
-       .storeOp = VK_ATTACHMENT_STORE_OP_STORE,
-       .stencilLoadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE,
-       .stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE}};
-
-  PANIC_IF(
-      vkCreateRenderPass(
-          state->context.device,
-          &(VkRenderPassCreateInfo){
-              .sType = VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO,
-              .pSubpasses = subpassDescriptions,
-              .subpassCount =
-                  sizeof(subpassDescriptions) / sizeof(*subpassDescriptions),
-              .pAttachments = attachmentDescriptions,
-              .attachmentCount = sizeof(attachmentDescriptions) /
-                                 sizeof(*attachmentDescriptions),
-
-              .dependencyCount = 1,
-              .pDependencies =
-                  &(VkSubpassDependency){
-                      .srcSubpass = VK_SUBPASS_EXTERNAL,
-                      .dstSubpass = 0,
-
-                      .srcAccessMask = 0,
-                      .dstAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT,
-
-                      .srcStageMask =
-                          VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT,
-                      .dstStageMask =
-                          VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT,
-                  },
-          },
-          state->config.allocator, &state->renderer.renderPass),
-      "Couldn't create render pass\n");
-}
-void destroyRenderPass(State *state) {
-  vkDestroyRenderPass(state->context.device, state->renderer.renderPass,
-                      state->config.allocator);
-}
-
-void createFramebuffers(State *state) {
-  uint32_t framebufferCount = state->window.swapchain.imageCount;
-  state->renderer.framebuffers =
-      malloc(framebufferCount * sizeof(VkFramebuffer));
-  PANIC_IF(!state->renderer.framebuffers,
-           "Couldn't allocate framebuffers memory\n");
-
-  uint32_t framebufferWidth = state->window.swapchain.imageExtend.width;
-  uint32_t framebufferHeight = state->window.swapchain.imageExtend.height;
-
-  for (int framebufferIndex = 0; framebufferIndex < framebufferCount;
-       framebufferIndex++) {
-
-    PANIC_IF(vkCreateFramebuffer(
-                 state->context.device,
-                 &(VkFramebufferCreateInfo){
-                     .sType = VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO,
-                     .layers = 1,
-                     .renderPass = state->renderer.renderPass,
-                     .width = framebufferWidth,
-                     .height = framebufferHeight,
-                     .attachmentCount = 1,
-                     .pAttachments =
-                         &state->window.swapchain.imageViews[framebufferIndex],
-                 },
-                 state->config.allocator,
-                 &state->renderer.framebuffers[framebufferIndex]),
-             "Couldn't create framebuffer at index: %i\n", framebufferIndex);
-  }
-}
-void destroyFramebuffers(State *state) {
-  uint32_t framebufferCount = state->window.swapchain.imageCount;
-  for (int framebufferIndex = 0; framebufferIndex < framebufferCount;
-       framebufferIndex++) {
-    vkDestroyFramebuffer(state->context.device,
-                         state->renderer.framebuffers[framebufferIndex],
-                         state->config.allocator);
-  }
-  free(state->renderer.framebuffers);
 }
 
 void createCommandPool(State *state) {
@@ -357,13 +169,11 @@ void destroySyncObjects(State *state) {
 }
 
 void createRenderer(State *state) {
-  createRenderPass(state);
-  createGraphicsPipeline(state);
+  createComputePipeline(state);
 
   createSphereBuffer(state);
   createDescriptors(state);
 
-  createFramebuffers(state);
   createCommandPool(state);
   allocateCommandBuffer(state);
   createSyncObjects(state);
@@ -375,27 +185,26 @@ void destroyRenderer(State *state) {
   destroySyncObjects(state);
   destroyCommandPool(state);
   free(state->renderer.commandBuffers);
-  destroyFramebuffers(state);
   destroyDescriptors(state);
   destroySphereBuffer(state);
-  destroyGraphicsPipeline(state);
-  destroyRenderPass(state);
+  destroyComputePipeline(state);
 }
 
 void recordCommandBuffer(State *state) {
 
   VkCommandBuffer commandBuffer = *state->renderer.commandBuffers;
-  uint32_t imageAcquiredIndex = state->window.swapchain.imageAcquiredIndex;
-
+  uint32_t imageIndex = state->window.swapchain.imageAcquiredIndex;
+  VkImage image = state->window.swapchain.images[imageIndex];
   VkExtent2D extent = state->window.swapchain.imageExtend;
 
   PushConstants pushConstants = {
-      .player = {0.0f, 0.0f, 0.0f}, // camera position
-      .fov = glm_rad(60.0f),        // shader expects radians (cglm helper)
-      .resolution = {(float)extent.width, (float)extent.height},
-      .boundingRadius = 25.0f, // max ray distance
+      .cameraData = {(float)extent.width, (float)extent.height,
+                     glm_rad(state->config.fov)}, // shader expects radians
+      .boundingRadius = state->config.boundingRadius,
       .sphereCount = state->renderer.sphereData.objectCount,
   };
+  glm_vec3_copy(state->player.position, pushConstants.playerPosition);
+  glm_vec3_copy(state->player.rotation, pushConstants.playerRotation);
 
   PANIC_IF(vkBeginCommandBuffer(
                commandBuffer,
@@ -403,60 +212,76 @@ void recordCommandBuffer(State *state) {
                    .sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO,
                }),
            "Couldn't begin command buffer\n");
-  /* ofr frame: %i\n",
-  state->window.swapchain.imageAcquiredIndex);*/
-  VkClearValue clearValues[] = {
-      state->config.backgroundColor,
+
+  VkImageSubresourceRange range = {
+      .aspectMask = VK_IMAGE_ASPECT_COLOR_BIT,
+      .levelCount = 1,
+      .layerCount = 1,
   };
 
-  vkCmdBeginRenderPass(
+  vkCmdPipelineBarrier(
       commandBuffer,
-      &(VkRenderPassBeginInfo){
-          .sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO,
-          .renderPass = state->renderer.renderPass,
-          .framebuffer = state->renderer.framebuffers[imageAcquiredIndex],
-          .renderArea =
-              (VkRect2D){
-                  .extent = state->window.swapchain.imageExtend,
-              },
-          .pClearValues = clearValues,
-          .clearValueCount = 1,
-      },
-      VK_SUBPASS_CONTENTS_INLINE);
-
-  vkCmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS,
-                    state->renderer.graphicsPipeline);
-  vkCmdPushConstants(commandBuffer, state->renderer.graphicsPipelineLayout,
-                     VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(PushConstants),
+      VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, // łączy się z wait stage semafora
+      VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, 0, 0, NULL, 0, NULL, 1,
+      &(VkImageMemoryBarrier){
+          .sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER,
+          .srcAccessMask = 0,
+          .dstAccessMask = VK_ACCESS_SHADER_WRITE_BIT,
+          .oldLayout = VK_IMAGE_LAYOUT_UNDEFINED, // starą zawartość wyrzucamy
+          .newLayout = VK_IMAGE_LAYOUT_GENERAL,
+          .srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+          .dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+          .image = image,
+          .subresourceRange = range});
+  vkCmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_COMPUTE,
+                    state->renderer.computePipeline);
+  vkCmdPushConstants(commandBuffer, state->renderer.computePipelineLayout,
+                     VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(PushConstants),
                      &pushConstants);
-  vkCmdBindDescriptorSets(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS,
-                          state->renderer.graphicsPipelineLayout, 0, 1,
-                          &state->renderer.descriptorSet, 0, NULL);
-  vkCmdDraw(commandBuffer, 3, 1, 0, 0);
-  vkCmdEndRenderPass(commandBuffer);
+  vkCmdBindDescriptorSets(commandBuffer, VK_PIPELINE_BIND_POINT_COMPUTE,
+                          state->renderer.computePipelineLayout, 0, 1,
+                          &state->renderer.descriptorSets[imageIndex], 0, NULL);
+
+  vkCmdDispatch(commandBuffer, (extent.width + 7) / 8, (extent.height + 7) / 8,
+                1);
+
+  vkCmdPipelineBarrier(
+      commandBuffer,
+      VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, // czekaj, aż compute skończy pisać
+      VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT, 0, 0, NULL, 0, NULL, 1,
+      &(VkImageMemoryBarrier){
+          .sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER,
+          .srcAccessMask =
+              VK_ACCESS_SHADER_WRITE_BIT, // zapisy shadera mają być widoczne
+          .dstAccessMask = 0,             // present synchronizuje semafor
+          .oldLayout = VK_IMAGE_LAYOUT_GENERAL,
+          .newLayout = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR,
+          .srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+          .dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+          .image = image,
+          .subresourceRange = range});
 
   PANIC_IF(vkEndCommandBuffer(commandBuffer), "Couldn't end command buffer\n");
 }
 
 void submitCommandBuffer(State *state) {
-  vkQueueSubmit(state->context.queue, 1,
-                &(VkSubmitInfo){
-                    .sType = VK_STRUCTURE_TYPE_SUBMIT_INFO,
-                    .commandBufferCount = 1,
-                    .pCommandBuffers = state->renderer.commandBuffers,
+  vkQueueSubmit(
+      state->context.queue, 1,
+      &(VkSubmitInfo){
+          .sType = VK_STRUCTURE_TYPE_SUBMIT_INFO,
+          .commandBufferCount = 1,
+          .pCommandBuffers = state->renderer.commandBuffers,
 
-                    .waitSemaphoreCount = 1,
-                    .pWaitSemaphores = &state->renderer.imageAcquiredSemaphore,
+          .waitSemaphoreCount = 1,
+          .pWaitSemaphores = &state->renderer.imageAcquiredSemaphore,
 
-                    .signalSemaphoreCount = 1,
-                    .pSignalSemaphores =
-                        &state->renderer.renderFinishedSemaphores
-                             [state->window.swapchain.imageAcquiredIndex],
+          .signalSemaphoreCount = 1,
+          .pSignalSemaphores =
+              &state->renderer.renderFinishedSemaphores
+                   [state->window.swapchain.imageAcquiredIndex],
 
-                    .pWaitDstStageMask =
-                        (VkPipelineStageFlags[]){
-                            VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT,
-                        }},
-
-                state->renderer.inFlightFence);
+          .pWaitDstStageMask =
+              (VkPipelineStageFlags[]){VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT},
+      },
+      state->renderer.inFlightFence);
 }

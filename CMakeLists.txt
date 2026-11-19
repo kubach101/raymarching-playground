@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 4.2)
-project(VkEngine C)
+project(raymarching C)
 
 set(CMAKE_C_STANDARD 17)
 
@@ -20,20 +20,20 @@ FetchContent_Declare(cglm
 
 FetchContent_MakeAvailable(glfw cglm)
 
-add_executable(VkEngine src/main.c src/utils.h src/toolkit.h 
+add_executable(raymarching src/main.c src/utils.h src/toolkit.h 
                src/structs.h src/context.h src/window.h src/renderer.h)
 
-target_link_libraries(VkEngine PRIVATE Vulkan::Vulkan glfw cglm_headers)
+target_link_libraries(raymarching PRIVATE Vulkan::Vulkan glfw cglm_headers)
 
 # Vulkan uses a 0..1 depth range (cglm defaults to OpenGL's -1..1)
-target_compile_definitions(VkEngine PRIVATE CGLM_FORCE_DEPTH_ZERO_TO_ONE)
+target_compile_definitions(raymarching PRIVATE CGLM_FORCE_DEPTH_ZERO_TO_ONE)
 
 # --- Shaders: compile GLSL -> SPIR-V at build time with glslc ---
 find_program(GLSLC glslc HINTS $ENV{VULKAN_SDK}/Bin REQUIRED)
 
 set(SHADER_SOURCES
-    ${CMAKE_SOURCE_DIR}/res/shaders/shader.vert
-    ${CMAKE_SOURCE_DIR}/res/shaders/raymarching.frag)
+    ${CMAKE_SOURCE_DIR}/res/shaders/raymarching.comp)
+
 set(SHADER_OUTPUT_DIR ${CMAKE_BINARY_DIR}/shaders)
 
 set(SPIRV_FILES)
@@ -50,5 +50,5 @@ foreach(SHADER ${SHADER_SOURCES})
 endforeach()
 
 add_custom_target(Shaders DEPENDS ${SPIRV_FILES})
-add_dependencies(VkEngine Shaders)
-target_compile_definitions(VkEngine PRIVATE SHADER_DIR="${SHADER_OUTPUT_DIR}/")
+add_dependencies(raymarching Shaders)
+target_compile_definitions(raymarching PRIVATE SHADER_DIR="${SHADER_OUTPUT_DIR}/")

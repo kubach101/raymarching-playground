@@ -86,6 +86,7 @@ void selectQueueFamily(State *state) {
        queueFamilyIndex++) {
     VkQueueFamilyProperties properties = queueFamilies[queueFamilyIndex];
     if (properties.queueFlags & VK_QUEUE_GRAPHICS_BIT &&
+        properties.queueFlags & VK_QUEUE_COMPUTE_BIT &&
         glfwGetPhysicalDevicePresentationSupport(state->context.instance,
                                                  state->context.physicalDevice,
                                                  queueFamilyIndex)) {
@@ -113,7 +114,10 @@ void createDevice(State *state) {
                    .enabledExtensionCount = 1,
                    .ppEnabledExtensionNames =
                        &(const char *){VK_KHR_SWAPCHAIN_EXTENSION_NAME},
-               },
+                   .pEnabledFeatures =
+                       &(VkPhysicalDeviceFeatures){
+                           .shaderStorageImageWriteWithoutFormat = VK_TRUE,
+                       }},
                state->config.allocator, &state->context.device),
            "Couldn't create devices and queues\n");
 }

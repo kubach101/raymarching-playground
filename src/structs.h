@@ -1,6 +1,8 @@
 #pragma once
 
+#include "cglm/types.h"
 #include "headers.h"
+#include <stddef.h>
 
 typedef struct {
   const char *applicationName;
@@ -16,6 +18,9 @@ typedef struct {
   uint32_t swapchainBuffering;
 
   VkClearValue backgroundColor;
+
+  float fov;
+  float boundingRadius;
 
 } Config;
 typedef struct {
@@ -52,41 +57,52 @@ typedef struct {
   uint32_t objectCount;
 } BufferData;
 typedef struct {
-  VkPipeline graphicsPipeline;
-  VkPipelineLayout graphicsPipelineLayout;
-  VkRenderPass renderPass;
-  VkFramebuffer *framebuffers;
+  VkPipeline computePipeline;
+  VkPipelineLayout computePipelineLayout;
   VkCommandPool commandPool;
   VkCommandBuffer *commandBuffers;
   VkSemaphore imageAcquiredSemaphore;
-  VkSemaphore *renderFinishedSemaphores; // one per swapchain image
+  VkSemaphore *renderFinishedSemaphores;
   VkFence inFlightFence;
 
-  // Describes the shader's resource interface, shared by all buffers
   VkDescriptorSetLayout descriptorSetLayout;
   VkDescriptorPool descriptorPool;
-  VkDescriptorSet descriptorSet;
+  VkDescriptorSet *descriptorSets; // jeden na obraz swapchaina
 
   BufferData sphereData;
 } Renderer;
+
+typedef struct {
+  vec3 position;
+  vec3 rotation;
+  vec3 up;
+} Player;
+
 typedef struct {
   Config config;
   Window window;
   Context context;
   Renderer renderer;
-
+  Player player;
 } State;
 
-// Must match the push_constant block in raymarching.frag
+// Must match the push_constant block in raymarching.frag (std430: vec3 aligns
+// to 16 bytes, so each vec3 that is followed by another vec3 needs padding)
 typedef struct {
-  float player[3];      // offset 0
-  float fov;            // offset 12 (radians)
-  float resolution[2];  // offset 16
-  float boundingRadius; // offset 24
-  uint32_t sphereCount; // offset 28
-} PushConstants;        // 32 bytes
+  vec3 playerPosition;  // offset 0
+  float _pad0;          // offset 12
+  vec3 playerRotation;  // offset 16 (radians: pitch, yaw, roll)
+  float _pad1;          // offset 28
+  vec3 cameraData;      // offset 32 (xy = resolution, z = fov in radians)
+  float boundingRadius; // offset 44
+  uint32_t sphereCount; // offset 48
+} PushConstants;        // 52 bytes
 
-// Must match the SphereBuffer element in raymarching.frag (vec4)
+_Static_assert(offsetof(PushConstants, playerRotation) == 16, "PC layout");
+_Static_assert(offsetof(PushConstants, cameraData) == 32, "PC layout");
+_Static_assert(offsetof(PushConstants, boundingRadius) == 44, "PC layout");
+_Static_assert(offsetof(PushConstants, sphereCount) == 48, "PC layout");
+
 typedef struct {
   float center[3];
   float radius;
@@ -95,9 +111,4 @@ typedef struct {
 enum swapchainBuffering {
   SWAPCHAIN_DOUBLE_BUFFERING = 2,
   SWAPCHAIN_TRIPLE_BUFFERING = 3,
-};
-
-enum bodyType {
-  SPHERE = 0,
-  CUBE = 1,
 };

@@ -3,6 +3,7 @@
 #include "cglm/types.h"
 #include "structs.h"
 #include "utils.h"
+#include <stdint.h>
 #include <stdlib.h>
 
 void createStorageBuffer(State *state, BufferData *buffer, const void *data,
@@ -73,7 +74,7 @@ void destroyStorageBuffer(State *state, BufferData *buffer) {
 
 void createSphereBuffer(State *state) {
   Sphere spheres[] = {
-      {.center = {0.0f, 0.0f, 3.0f}, .radius = 1.0f},
+      {.center = {0.0f, 0.0f, 0.0f}, .radius = 1.0f},
   };
   createStorageBuffer(state, &state->renderer.sphereData, spheres,
                       sizeof(*spheres), sizeof(spheres) / sizeof(*spheres));
@@ -83,53 +84,75 @@ void destroySphereBuffer(State *state) {
 }
 
 void createDescriptors(State *state) {
+
+  uint32_t imageCount = state->window.swapchain.imageCount;
+
+  VkDescriptorPoolSize poolSizes[] = {
+      {.type = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
+       .descriptorCount = imageCount},
+      {.type = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, .descriptorCount = imageCount},
+  };
+
   PANIC_IF(vkCreateDescriptorPool(
                state->context.device,
                &(VkDescriptorPoolCreateInfo){
-
                    .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO,
-                   .maxSets = 1,
-                   .poolSizeCount = 1,
-                   .pPoolSizes =
-                       &(VkDescriptorPoolSize){
-                           .type = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
-                           .descriptorCount = 1,
-                       }
-
+                   .maxSets = imageCount,
+                   .poolSizeCount = sizeof(poolSizes) / sizeof(*poolSizes),
+                   .pPoolSizes = poolSizes,
                },
                state->config.allocator, &state->renderer.descriptorPool),
-           "Couldn't create decriptor pool\n");
+           "Couldn't create descriptor pool\n");
+
+  state->renderer.descriptorSets = malloc(imageCount * sizeof(VkDescriptorSet));
+  VkDescriptorSetLayout *layouts =
+      malloc(imageCount * sizeof(VkDescriptorSetLayout));
+
+  PANIC_IF(!state->renderer.descriptorSets || !layouts,
+           "Couldn't allocate descriptor set arrays\n");
+
+  for (uint32_t i = 0; i < imageCount; i++)
+    layouts[i] = state->renderer.descriptorSetLayout;
+
   PANIC_IF(vkAllocateDescriptorSets(
                state->context.device,
                &(VkDescriptorSetAllocateInfo){
                    .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO,
                    .descriptorPool = state->renderer.descriptorPool,
-                   .descriptorSetCount = 1,
-                   .pSetLayouts = &state->renderer.descriptorSetLayout},
-               &state->renderer.descriptorSet),
+                   .descriptorSetCount = imageCount,
+                   .pSetLayouts = layouts},
+               state->renderer.descriptorSets),
            "Couldn't allocate descriptor sets\n");
+  free(layouts);
 
-  vkUpdateDescriptorSets(
-      state->context.device, 1,
-      &(VkWriteDescriptorSet){
-          .sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
-          .dstSet = state->renderer.descriptorSet,
-          .dstBinding = 0,
-          .dstArrayElement = 0,
-          .descriptorCount = 1,
-          .descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
-          .pBufferInfo =
-              &(VkDescriptorBufferInfo){
-                  .buffer = state->renderer.sphereData
-                                .handle, // what binding 0 points at
-                  .offset = 0,
-                  .range = VK_WHOLE_SIZE,
-              },
-      },
-      0, NULL);
+  for (uint32_t i = 0; i < imageCount; i++) {
+    VkWriteDescriptorSet writes[] = {
+        {.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
+         .dstSet = state->renderer.descriptorSets[i],
+         .dstBinding = 0,
+         .descriptorCount = 1,
+         .descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
+         .pBufferInfo =
+             &(VkDescriptorBufferInfo){.buffer =
+                                           state->renderer.sphereData.handle,
+                                       .range = VK_WHOLE_SIZE}},
+        {.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
+         .dstSet = state->renderer.descriptorSets[i],
+         .dstBinding = 1,
+         .descriptorCount = 1,
+         .descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE,
+         .pImageInfo =
+             &(VkDescriptorImageInfo){
+                 .imageView = state->window.swapchain.imageViews[i],
+                 .imageLayout =
+                     VK_IMAGE_LAYOUT_GENERAL}}, // storage image = GENERAL
+    };
+    vkUpdateDescriptorSets(state->context.device, 2, writes, 0, NULL);
+  }
 }
 void destroyDescriptors(State *state) {
   // Destroying the pool also frees every descriptor set allocated from it
   vkDestroyDescriptorPool(state->context.device, state->renderer.descriptorPool,
                           state->config.allocator);
+  free(state->renderer.descriptorSets);
 }
